@@ -44,11 +44,15 @@ def create_app(
         auth_service: The AuthService instance for authentication middleware.
             If None, a no-op auth service is used (useful for testing health endpoints).
         rate_limiter: The rate limiter instance for rate limit middleware.
-            If None, a pass-through limiter is used (useful for testing without Redis).
+            If None, attempts to connect to Redis via REDIS_URL env var.
+            Falls back to pass-through if Redis is unavailable.
 
     Returns:
         A configured FastAPI application with middleware chain and routes.
     """
+    # Auto-connect to Redis for rate limiting if REDIS_URL is set
+    if rate_limiter is None:
+        rate_limiter = _create_redis_rate_limiter()
     app = FastAPI(
         title="Agentic Research Search Engine",
         version="0.1.0",
@@ -110,3 +114,29 @@ class _NoOpAuthService:
         from backend.auth.service import AuthResult
 
         return AuthResult(tenant_id="test-tenant", api_key_id="test-key")
+
+
+def _create_redis_rate_limiter():
+    """Create a Redis-backed rate limiter if REDIS_URL is set.
+
+    Returns None (which triggers pass-through) if Redis is unavailable.
+    """
+    import os
+
+    redis_url = os.environ.get("REDIS_URL", "")
+    if not redis_url:
+        return None
+
+    try:
+        from redis.asyncio import Redis
+        from backend.rate_limiter.token_bucket import TokenBucketRateLimiter
+
+        # Handle rediss:// (TLS) URLs
+        redis_client = Redis.from_url(
+            redis_url,
+            decode_responses=False,
+            socket_connect_timeout=5,
+        )
+        return TokenBucketRateLimiter(redis_client, default_limit_per_minute=60)
+    except Exception:
+        return None
