@@ -84,8 +84,10 @@ def create_app(
 def _register_routes(app: FastAPI) -> None:
     """Register API routes on the FastAPI application."""
     from backend.api_gateway.routes import router as v1_router
+    from backend.api_gateway.mcp_sse import mcp_router
 
     app.include_router(v1_router)
+    app.include_router(mcp_router, prefix="/mcp")
 
     @app.get("/health")
     async def health_check() -> JSONResponse:
