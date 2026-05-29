@@ -1,8 +1,7 @@
 [build]
 builder = "nixpacks"
-buildCommand = "cd backend && pip install poetry && poetry install --no-interaction"
 
 [deploy]
-startCommand = "cd backend && poetry run uvicorn backend.api_gateway.app:create_app --factory --host 0.0.0.0 --port ${PORT:-8000}"
+startCommand = "cd backend && pip install poetry && poetry config virtualenvs.create false && poetry install --no-interaction --only main && pip install openai && poetry run uvicorn backend.api_gateway.app:create_app --factory --host 0.0.0.0 --port ${PORT:-8000}"
 healthcheckPath = "/health"
 restartPolicyType = "ON_FAILURE"

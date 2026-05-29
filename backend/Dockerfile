@@ -1,12 +1,11 @@
-# Multi-stage Dockerfile for Agentic Research Search Engine Backend
-# Stage 1: Build dependencies
-FROM python:3.11-slim AS builder
+# Multi-stage Dockerfile for Verisearch Backend
+FROM python:3.11-slim AS production
 
 WORKDIR /app
 
-# Install system dependencies for building
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
+    curl build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry
@@ -15,30 +14,12 @@ RUN pip install --no-cache-dir poetry==2.4.1
 # Copy dependency files
 COPY pyproject.toml poetry.lock* ./
 
-# Export requirements (without dev dependencies)
-RUN poetry export -f requirements.txt --without dev --output requirements.txt
+# Install dependencies (no dev, no virtualenv)
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-interaction --no-dev --no-root 2>/dev/null || poetry install --no-interaction --only main --no-root
 
-# Install dependencies into a virtual environment
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Install optional AI packages
-RUN pip install --no-cache-dir openai anthropic
-
-# Stage 2: Production image
-FROM python:3.11-slim AS production
-
-WORKDIR /app
-
-# Install runtime dependencies only
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy virtual environment from builder
-COPY --from=builder /opt/venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+# Install AI packages
+RUN pip install --no-cache-dir openai
 
 # Copy application code
 COPY . /app/
@@ -51,8 +32,6 @@ USER appuser
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Expose port
 EXPOSE 8000
 
-# Run with uvicorn
-CMD ["uvicorn", "backend.api_gateway.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD ["python", "-m", "uvicorn", "backend.api_gateway.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
