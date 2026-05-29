@@ -11,14 +11,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Poetry
 RUN pip install --no-cache-dir poetry==2.4.1
 
-# Copy dependency files
+# Copy dependency files first (for caching)
 COPY pyproject.toml poetry.lock* ./
 
-# Install dependencies (no dev, no virtualenv)
+# Install dependencies without virtualenv
 RUN poetry config virtualenvs.create false \
-    && poetry install --no-interaction --no-dev --no-root 2>/dev/null || poetry install --no-interaction --only main --no-root
+    && poetry install --no-interaction --only main --no-root || true
 
-# Install AI packages
+# Install AI package
 RUN pip install --no-cache-dir openai
 
 # Copy application code
@@ -30,8 +30,8 @@ USER appuser
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
 
 EXPOSE 8000
 
-CMD ["python", "-m", "uvicorn", "backend.api_gateway.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD python -m uvicorn backend.api_gateway.app:create_app --factory --host 0.0.0.0 --port ${PORT:-8000}
