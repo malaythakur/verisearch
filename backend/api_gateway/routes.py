@@ -159,12 +159,65 @@ def _get_services() -> dict[str, Any]:
         _services["contents_service"] = contents_service
         _services["kafka_producer"] = kafka_producer
 
+        # Load persisted documents from PostgreSQL on startup
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(_load_persisted_documents(indexer))
+            else:
+                loop.run_until_complete(_load_persisted_documents(indexer))
+        except Exception:
+            pass
+
     return _services
 
 
 def _get_tenant_id(request: Request) -> str:
     """Extract tenant_id from request state (set by auth middleware)."""
     return getattr(request.state, "tenant_id", "test-tenant")
+
+
+async def _load_persisted_documents(indexer) -> None:
+    """Load documents from PostgreSQL into the in-memory indexer on startup."""
+    import os
+    database_url = os.environ.get("DATABASE_URL", "")
+    if not database_url:
+        return
+
+    try:
+        import asyncpg
+        conn = await asyncpg.connect(database_url)
+        rows = await conn.fetch("SELECT document_id, source_url, version, cleaned_text FROM documents WHERE visible = TRUE")
+        await conn.close()
+
+        for row in rows:
+            # Inject directly into the indexer's in-memory store
+            from backend.indexer.service import DocumentVersion
+            from backend.indexer.embeddings import generate_embedding
+            from datetime import datetime, timezone
+
+            doc_version = DocumentVersion(
+                document_id=row["document_id"],
+                version=row["version"],
+                content_hash="loaded",
+                cleaned_text=row["cleaned_text"],
+                source_url=row["source_url"],
+                last_seen_at=datetime.now(timezone.utc),
+                created_at=datetime.now(timezone.utc),
+                visible=True,
+            )
+
+            indexer._url_to_doc_id[row["source_url"]] = row["document_id"]
+            indexer._documents[row["document_id"]] = [doc_version]
+
+            # Write to in-memory indexes for search
+            embedding = generate_embedding(row["cleaned_text"])
+            indexer._vector_index.write(row["document_id"], row["version"], embedding)
+            indexer._lexical_index.write(row["document_id"], row["version"], row["cleaned_text"])
+
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -198,8 +251,14 @@ async def index_document(body: IndexBody, request: Request) -> JSONResponse:
             content={"message_id": message_id, "status": "queued"},
         )
 
-    # Synchronous fallback
+    # Synchronous indexing
     result = await indexer.index_document(body.content, body.url)
+
+    # Persist to PostgreSQL if available
+    try:
+        await _persist_document(result.document_id, body.url, result.version, body.content)
+    except Exception:
+        pass  # DB persistence failure is non-fatal
 
     return JSONResponse(
         status_code=201,
@@ -209,6 +268,36 @@ async def index_document(body: IndexBody, request: Request) -> JSONResponse:
             "is_new": result.is_new,
         },
     )
+
+
+async def _persist_document(document_id: str, source_url: str, version: int, content: str) -> None:
+    """Persist a document to PostgreSQL for durability."""
+    import os
+    database_url = os.environ.get("DATABASE_URL", "")
+    if not database_url:
+        return
+
+    try:
+        import asyncpg
+        conn = await asyncpg.connect(database_url)
+        from backend.indexer.cleaner import clean_html
+        from backend.indexer.hasher import compute_content_hash
+
+        cleaned = clean_html(content)
+        content_hash = compute_content_hash(cleaned)
+
+        await conn.execute("""
+            INSERT INTO documents (document_id, source_url, version, content_hash, cleaned_text)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (source_url) DO UPDATE SET
+                version = documents.version + 1,
+                content_hash = $4,
+                cleaned_text = $5,
+                updated_at = NOW()
+        """, document_id, source_url, version, content_hash, cleaned)
+        await conn.close()
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------

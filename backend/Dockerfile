@@ -11,7 +11,7 @@ COPY pyproject.toml poetry.lock* ./
 
 RUN poetry config virtualenvs.create false && poetry install --no-interaction --only main --no-root || true
 
-RUN pip install --no-cache-dir openai
+RUN pip install --no-cache-dir openai asyncpg
 
 # Copy backend code into /app/backend/
 COPY . /app/backend/
