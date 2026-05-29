@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentic-research
+  labels:
+    app.kubernetes.io/part-of: agentic-research-engine
+    environment: production

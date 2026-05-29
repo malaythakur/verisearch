@@ -1,0 +1,27 @@
+apiVersion: v2
+name: agentic-research
+description: Helm chart for the Agentic Research Search Engine platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - search
+  - ai
+  - research
+  - multi-tenant
+maintainers:
+  - name: Agentic Research Team
+    email: platform@agentic-research.com
+dependencies:
+  - name: postgresql
+    version: "15.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
+  - name: redis
+    version: "19.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled
+  - name: kafka
+    version: "28.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: kafka.enabled

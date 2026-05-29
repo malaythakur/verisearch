@@ -1,0 +1,66 @@
+# Kafka Cluster Configuration (Strimzi Operator)
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: agentic-research-kafka
+  namespace: agentic-research
+  labels:
+    app.kubernetes.io/part-of: agentic-research-engine
+spec:
+  kafka:
+    version: 3.7.0
+    replicas: 3
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+      default.replication.factor: 3
+      min.insync.replicas: 2
+      inter.broker.protocol.version: "3.7"
+      log.retention.hours: 168  # 7 days default
+      log.segment.bytes: 1073741824
+      num.partitions: 6
+      auto.create.topics.enable: false
+    storage:
+      type: persistent-claim
+      size: 100Gi
+      class: gp3
+    resources:
+      requests:
+        memory: 4Gi
+        cpu: 2000m
+      limits:
+        memory: 8Gi
+        cpu: 4000m
+    metricsConfig:
+      type: jmxPrometheusExporter
+      valueFrom:
+        configMapKeyRef:
+          name: kafka-metrics-config
+          key: kafka-metrics-config.yml
+  zookeeper:
+    replicas: 3
+    storage:
+      type: persistent-claim
+      size: 20Gi
+      class: gp3
+    resources:
+      requests:
+        memory: 1Gi
+        cpu: 500m
+      limits:
+        memory: 2Gi
+        cpu: 1000m
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}

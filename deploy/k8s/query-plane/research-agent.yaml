@@ -1,0 +1,144 @@
+---
+# Research Agent Deployment - Query Plane
+# Plans and executes multi-hop research jobs with tool-use loops
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: research-agent
+  namespace: agentic-research
+  labels:
+    app: research-agent
+    tier: query-plane
+    app.kubernetes.io/component: research-agent
+    app.kubernetes.io/part-of: agentic-research-engine
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: research-agent
+  template:
+    metadata:
+      labels:
+        app: research-agent
+        tier: query-plane
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      serviceAccountName: query-plane
+      containers:
+        - name: research-agent
+          image: agentic-research/research-agent:latest
+          ports:
+            - name: grpc
+              containerPort: 50054
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: SERVICE_NAME
+              value: "research-agent"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-credentials
+                  key: url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: url
+            - name: RETRIEVER_URL
+              value: "retriever.agentic-research.svc.cluster.local:50051"
+            - name: ANSWER_ENGINE_URL
+              value: "answer-engine.agentic-research.svc.cluster.local:50053"
+            - name: PIPELINE_ENGINE_URL
+              value: "pipeline-engine.agentic-research.svc.cluster.local:50052"
+            - name: KAFKA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: kafka-config
+                  key: brokers
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-credentials
+                  key: api-key
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-config
+                  key: otlp-endpoint
+            - name: JOB_RETURN_SLO_MS
+              value: "1000"
+            - name: MAX_PLAN_STEPS
+              value: "32"
+            - name: DEFAULT_MAX_DURATION_MS
+              value: "300000"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+          livenessProbe:
+            grpc:
+              port: 50054
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            grpc:
+              port: 50054
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: research-agent
+  namespace: agentic-research
+spec:
+  type: ClusterIP
+  ports:
+    - name: grpc
+      port: 50054
+      targetPort: grpc
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+  selector:
+    app: research-agent
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: research-agent
+  namespace: agentic-research
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: research-agent
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+    - type: Pods
+      pods:
+        metric:
+          name: active_research_jobs
+        target:
+          type: AverageValue
+          averageValue: "5"

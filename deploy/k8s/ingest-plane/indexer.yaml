@@ -1,0 +1,158 @@
+---
+# Indexer Workers Deployment - Ingest Plane
+# Converts raw documents into searchable index entries
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: indexer
+  namespace: agentic-research
+  labels:
+    app: indexer
+    tier: ingest-plane
+    app.kubernetes.io/component: indexer
+    app.kubernetes.io/part-of: agentic-research-engine
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: indexer
+  template:
+    metadata:
+      labels:
+        app: indexer
+        tier: ingest-plane
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      serviceAccountName: ingest-plane
+      containers:
+        - name: indexer
+          image: agentic-research/indexer:latest
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: SERVICE_NAME
+              value: "indexer"
+            - name: KAFKA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: kafka-config
+                  key: brokers
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-credentials
+                  key: url
+            - name: OPENSEARCH_URL
+              valueFrom:
+                secretKeyRef:
+                  name: opensearch-credentials
+                  key: url
+            - name: VECTOR_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vectordb-credentials
+                  key: url
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: storage-config
+                  key: document-bucket
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-config
+                  key: otlp-endpoint
+            - name: KAFKA_TOPIC_FETCHED
+              value: "crawl.fetched"
+            - name: KAFKA_TOPIC_DLQ
+              value: "index.dlq"
+            - name: MAX_RETRY_ATTEMPTS
+              value: "3"
+            - name: RETRY_DELAY_S
+              value: "60"
+            - name: INGEST_SLO_P95_MINUTES
+              value: "60"
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 2Gi
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: indexer
+  namespace: agentic-research
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+  selector:
+    app: indexer
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: indexer
+  namespace: agentic-research
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: indexer
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+---
+# Storage configuration for ingest plane
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: storage-config
+  namespace: agentic-research
+data:
+  document-bucket: "agentic-research-documents"
+  document-prefix: "cleaned-text/"
+---
+# LLM configuration for answer engine and research agent
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-config
+  namespace: agentic-research
+data:
+  provider: "openai"
+  model: "gpt-4o"
+  temperature: "0"
+  max-tokens: "4096"

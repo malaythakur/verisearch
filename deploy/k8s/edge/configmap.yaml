@@ -1,0 +1,39 @@
+---
+# Application configuration shared across edge services
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: agentic-research
+  labels:
+    app.kubernetes.io/part-of: agentic-research-engine
+data:
+  environment: "production"
+  log-level: "INFO"
+  log-format: "json"
+  rate-limit-default-rpm: "60"
+  rate-limit-burst: "10"
+  cors-allowed-origins: "https://app.agentic-research.com"
+  max-request-body-size: "10485760"  # 10MB
+---
+# Observability configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-config
+  namespace: agentic-research
+data:
+  otlp-endpoint: "http://otel-collector.observability.svc.cluster.local:4317"
+  prometheus-endpoint: "http://prometheus.observability.svc.cluster.local:9090"
+  log-level: "INFO"
+  trace-sample-rate: "0.1"  # 10% sampling in production
+---
+# Kafka configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-config
+  namespace: agentic-research
+data:
+  brokers: "kafka-0.kafka.agentic-research.svc.cluster.local:9092,kafka-1.kafka.agentic-research.svc.cluster.local:9092,kafka-2.kafka.agentic-research.svc.cluster.local:9092"
+  schema-registry-url: "http://schema-registry.agentic-research.svc.cluster.local:8081"

@@ -1,0 +1,78 @@
+# Staging environment overrides
+global:
+  environment: staging
+
+apiGateway:
+  replicaCount: 2
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 5
+  ingress:
+    hosts:
+      - host: api-staging.agentic-research.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: api-staging-tls
+        hosts:
+          - api-staging.agentic-research.com
+
+mcpServer:
+  replicaCount: 1
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 3
+
+retriever:
+  replicaCount: 2
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 5
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+pipelineEngine:
+  replicaCount: 1
+
+answerEngine:
+  replicaCount: 2
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 5
+
+researchAgent:
+  replicaCount: 1
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 3
+
+crawler:
+  replicaCount: 2
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 5
+
+indexer:
+  replicaCount: 2
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 5
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+observability:
+  tracing:
+    sampleRate: 1.0  # 100% sampling in staging for debugging
+  logging:
+    level: DEBUG

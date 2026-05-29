@@ -1,0 +1,270 @@
+# Default values for agentic-research Helm chart
+# Override these in values-staging.yaml or values-production.yaml
+
+global:
+  environment: production
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: gp3
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Edge Services
+# ─────────────────────────────────────────────────────────────────────────────
+apiGateway:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: agentic-research/api-gateway
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilization: 70
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    hosts:
+      - host: api.agentic-research.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: api-tls
+        hosts:
+          - api.agentic-research.com
+
+mcpServer:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: agentic-research/mcp-server
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilization: 70
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Query Plane Services
+# ─────────────────────────────────────────────────────────────────────────────
+retriever:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: agentic-research/retriever
+    tag: latest
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+    limits:
+      cpu: 4000m
+      memory: 4Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 15
+    targetCPUUtilization: 65
+
+pipelineEngine:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: agentic-research/pipeline-engine
+    tag: latest
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  config:
+    stepTimeoutMs: 2000
+    maxSteps: 20
+
+answerEngine:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: agentic-research/answer-engine
+    tag: latest
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilization: 60
+  slo:
+    firstTokenMs: 3000
+    citationDelayMs: 500
+
+researchAgent:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: agentic-research/research-agent
+    tag: latest
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilization: 60
+  config:
+    maxPlanSteps: 32
+    defaultMaxDurationMs: 300000
+    jobReturnSloMs: 1000
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ingest Plane Services
+# ─────────────────────────────────────────────────────────────────────────────
+crawler:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: agentic-research/crawler
+    tag: latest
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilization: 70
+  config:
+    maxConcurrentPerHost: 2
+    defaultCrawlDelayS: 1
+    robotsCacheTtlS: 86400
+    robotsFetchTimeoutS: 10
+
+indexer:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: agentic-research/indexer
+    tag: latest
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 15
+    targetCPUUtilization: 65
+  config:
+    maxRetryAttempts: 3
+    retryDelayS: 60
+    ingestSloP95Minutes: 60
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Observability
+# ─────────────────────────────────────────────────────────────────────────────
+observability:
+  tracing:
+    enabled: true
+    otlpEndpoint: "http://otel-collector.observability.svc.cluster.local:4317"
+    sampleRate: 0.1
+  logging:
+    level: INFO
+    format: json
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Infrastructure Dependencies
+# ─────────────────────────────────────────────────────────────────────────────
+postgresql:
+  enabled: false  # Use external managed PostgreSQL in production
+  auth:
+    existingSecret: database-credentials
+
+redis:
+  enabled: false  # Use external managed Redis in production
+  auth:
+    existingSecret: redis-credentials
+
+kafka:
+  enabled: false  # Use Strimzi-managed Kafka or MSK in production
+
+# External service URLs (when managed services are disabled)
+externalServices:
+  postgresql:
+    host: ""
+    port: 5432
+    database: agentic_research
+    sslMode: require
+  redis:
+    host: ""
+    port: 6379
+    tls: true
+  opensearch:
+    host: ""
+    port: 9200
+  vectordb:
+    host: ""
+    port: 6333
+  kafka:
+    brokers: ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Secrets (references to external secret stores)
+# ─────────────────────────────────────────────────────────────────────────────
+secrets:
+  provider: aws-secrets-manager  # aws-secrets-manager | vault | kubernetes
+  kmsKeyId: ""
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h

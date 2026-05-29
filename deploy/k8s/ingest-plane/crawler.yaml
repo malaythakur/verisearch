@@ -1,0 +1,120 @@
+---
+# Crawler Workers Deployment - Ingest Plane
+# Fetches public web pages respecting robots.txt and opt-outs
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crawler
+  namespace: agentic-research
+  labels:
+    app: crawler
+    tier: ingest-plane
+    app.kubernetes.io/component: crawler
+    app.kubernetes.io/part-of: agentic-research-engine
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: crawler
+  template:
+    metadata:
+      labels:
+        app: crawler
+        tier: ingest-plane
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      serviceAccountName: ingest-plane
+      containers:
+        - name: crawler
+          image: agentic-research/crawler:latest
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: SERVICE_NAME
+              value: "crawler"
+            - name: KAFKA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: kafka-config
+                  key: brokers
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: url
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-credentials
+                  key: url
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-config
+                  key: otlp-endpoint
+            - name: MAX_CONCURRENT_PER_HOST
+              value: "2"
+            - name: DEFAULT_CRAWL_DELAY_S
+              value: "1"
+            - name: ROBOTS_CACHE_TTL_S
+              value: "86400"
+            - name: ROBOTS_FETCH_TIMEOUT_S
+              value: "10"
+            - name: KAFKA_TOPIC_FETCHED
+              value: "crawl.fetched"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crawler
+  namespace: agentic-research
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+  selector:
+    app: crawler
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: crawler
+  namespace: agentic-research
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: crawler
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

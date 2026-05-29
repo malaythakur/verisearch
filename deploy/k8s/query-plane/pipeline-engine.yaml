@@ -1,0 +1,96 @@
+---
+# Pipeline Engine Deployment - Query Plane
+# Executes tenant-defined retrieval pipelines (filters, rerankers, transforms)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pipeline-engine
+  namespace: agentic-research
+  labels:
+    app: pipeline-engine
+    tier: query-plane
+    app.kubernetes.io/component: pipeline-engine
+    app.kubernetes.io/part-of: agentic-research-engine
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: pipeline-engine
+  template:
+    metadata:
+      labels:
+        app: pipeline-engine
+        tier: query-plane
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      serviceAccountName: query-plane
+      containers:
+        - name: pipeline-engine
+          image: agentic-research/pipeline-engine:latest
+          ports:
+            - name: grpc
+              containerPort: 50052
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: SERVICE_NAME
+              value: "pipeline-engine"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-credentials
+                  key: url
+            - name: RETRIEVER_URL
+              value: "retriever.agentic-research.svc.cluster.local:50051"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-config
+                  key: otlp-endpoint
+            - name: PIPELINE_STEP_TIMEOUT_MS
+              value: "2000"
+            - name: MAX_PIPELINE_STEPS
+              value: "20"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          livenessProbe:
+            grpc:
+              port: 50052
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            grpc:
+              port: 50052
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pipeline-engine
+  namespace: agentic-research
+spec:
+  type: ClusterIP
+  ports:
+    - name: grpc
+      port: 50052
+      targetPort: grpc
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+  selector:
+    app: pipeline-engine

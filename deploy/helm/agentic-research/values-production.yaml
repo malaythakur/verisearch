@@ -1,0 +1,106 @@
+# Production environment overrides
+global:
+  environment: production
+
+apiGateway:
+  replicaCount: 3
+  autoscaling:
+    minReplicas: 3
+    maxReplicas: 20
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+    limits:
+      cpu: 4000m
+      memory: 2Gi
+  ingress:
+    hosts:
+      - host: api.agentic-research.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: api-production-tls
+        hosts:
+          - api.agentic-research.com
+
+mcpServer:
+  replicaCount: 2
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 10
+
+retriever:
+  replicaCount: 3
+  autoscaling:
+    minReplicas: 3
+    maxReplicas: 15
+  resources:
+    requests:
+      cpu: 2000m
+      memory: 2Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+
+pipelineEngine:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+    limits:
+      cpu: 4000m
+      memory: 4Gi
+
+answerEngine:
+  replicaCount: 3
+  autoscaling:
+    minReplicas: 3
+    maxReplicas: 20
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 4000m
+      memory: 4Gi
+
+researchAgent:
+  replicaCount: 2
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 10
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+
+crawler:
+  replicaCount: 3
+  autoscaling:
+    minReplicas: 3
+    maxReplicas: 20
+
+indexer:
+  replicaCount: 3
+  autoscaling:
+    minReplicas: 3
+    maxReplicas: 15
+  resources:
+    requests:
+      cpu: 2000m
+      memory: 4Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+
+observability:
+  tracing:
+    sampleRate: 0.1  # 10% sampling in production
+  logging:
+    level: INFO

@@ -1,0 +1,120 @@
+---
+# Retriever Deployment - Query Plane
+# Executes neural, keyword, and hybrid retrieval over tenant index views
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: retriever
+  namespace: agentic-research
+  labels:
+    app: retriever
+    tier: query-plane
+    app.kubernetes.io/component: retriever
+    app.kubernetes.io/part-of: agentic-research-engine
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: retriever
+  template:
+    metadata:
+      labels:
+        app: retriever
+        tier: query-plane
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      serviceAccountName: query-plane
+      containers:
+        - name: retriever
+          image: agentic-research/retriever:latest
+          ports:
+            - name: grpc
+              containerPort: 50051
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: SERVICE_NAME
+              value: "retriever"
+            - name: OPENSEARCH_URL
+              valueFrom:
+                secretKeyRef:
+                  name: opensearch-credentials
+                  key: url
+            - name: VECTOR_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vectordb-credentials
+                  key: url
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-credentials
+                  key: url
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-config
+                  key: otlp-endpoint
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 1Gi
+            limits:
+              cpu: 4000m
+              memory: 4Gi
+          livenessProbe:
+            grpc:
+              port: 50051
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            grpc:
+              port: 50051
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: retriever
+  namespace: agentic-research
+spec:
+  type: ClusterIP
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: grpc
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+  selector:
+    app: retriever
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: retriever
+  namespace: agentic-research
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: retriever
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
