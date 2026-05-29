@@ -6,13 +6,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 
 RUN pip install --no-cache-dir poetry==2.4.1
 
+# Copy backend files
 COPY pyproject.toml poetry.lock* ./
 
 RUN poetry config virtualenvs.create false && poetry install --no-interaction --only main --no-root || true
 
 RUN pip install --no-cache-dir openai
 
-COPY . /app/
+# Copy backend code into /app/backend/
+COPY . /app/backend/
+
+# Set working directory to parent so 'backend.api_gateway' resolves
+WORKDIR /app
 
 EXPOSE 8000
 
