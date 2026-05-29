@@ -336,6 +336,110 @@ Override with `TENANT_DEFAULT_` prefix:
 | `CRAWLER_MAX_CONCURRENCY_PER_HOST` | 2 | [1, 8] |
 | `RESEARCH_MAX_STEPS` | 32 | [1, 32] |
 
+### External Service Setup (Free Tier)
+
+The system works locally without any external services (falls back to in-memory). For production deployment with persistence and real AI, set up these free services:
+
+#### 1. Groq (Free LLM — Llama 3.3 70B)
+
+1. Go to [console.groq.com](https://console.groq.com)
+2. Sign up (free, no credit card)
+3. Go to **API Keys** → Create API Key
+4. Copy the key (starts with `gsk_`)
+5. Set in `.env`:
+   ```
+   OPENAI_API_KEY=gsk_your_key_here
+   OPENAI_MODEL=llama-3.3-70b-versatile
+   OPENAI_BASE_URL=https://api.groq.com/openai/v1
+   ```
+
+#### 2. Upstash Redis (Free Rate Limiting)
+
+1. Go to [upstash.com](https://upstash.com)
+2. Sign up → Create a **Redis** database
+3. Copy the connection string (starts with `rediss://`)
+4. Set in `.env`:
+   ```
+   REDIS_URL=rediss://default:your_password@your-cluster.upstash.io:6379
+   ```
+
+#### 3. Bonsai.io (Free OpenSearch)
+
+1. Go to [bonsai.io](https://bonsai.io)
+2. Sign up → Create a cluster (free tier = 125MB)
+3. Go to cluster dashboard → **Credentials** section
+4. Copy the full URL (credentials embedded): `https://user:pass@cluster.bonsaisearch.net:443`
+5. Set in `.env`:
+   ```
+   OPENSEARCH_URL=https://accesskey:secret@your-cluster.us-east-1.bonsaisearch.net:443
+   ```
+
+#### 4. Cloudflare R2 (Free S3-compatible Storage)
+
+1. Go to [dash.cloudflare.com](https://dash.cloudflare.com)
+2. Sign up → Go to **R2** → Create bucket named `verisearch-docs`
+3. Go to **R2** → **Manage R2 API Tokens** → Create API Token
+4. Select **"Object Read & Write"** permission
+5. You'll get: Access Key ID + Secret Access Key
+6. Set in `.env`:
+   ```
+   AWS_ACCESS_KEY_ID=your_access_key_id
+   AWS_SECRET_ACCESS_KEY=your_secret_access_key
+   AWS_ENDPOINT_URL=https://your-account-id.r2.cloudflarestorage.com
+   S3_BUCKET=verisearch-docs
+   AWS_DEFAULT_REGION=auto
+   ```
+
+#### 5. Confluent Cloud (Free Kafka)
+
+1. Go to [confluent.cloud](https://confluent.cloud)
+2. Sign up → Create a **Basic** cluster (free tier)
+3. Select: New to Kafka, No private networking, No data ready, No existing workload
+4. Choose **"Use my data"** → **"Build a client"** → Select **Python**
+5. You'll get: Bootstrap server + API Key + API Secret
+6. Create topics: `document-ingest` and `document-ingest-dlq`
+7. Set in `.env`:
+   ```
+   KAFKA_BOOTSTRAP_SERVERS=pkc-xxxxx.region.gcp.confluent.cloud:9092
+   KAFKA_API_KEY=your_api_key
+   KAFKA_API_SECRET=your_api_secret
+   ```
+
+#### 6. Railway PostgreSQL (for deployment)
+
+When deploying to Railway, add the **PostgreSQL plugin** from the marketplace. It auto-injects `DATABASE_URL`. No manual setup needed.
+
+### Complete `.env` Example (Production)
+
+```bash
+# AI (Groq - free)
+OPENAI_API_KEY=gsk_your_groq_key
+OPENAI_MODEL=llama-3.3-70b-versatile
+OPENAI_BASE_URL=https://api.groq.com/openai/v1
+
+# Redis (Upstash - free)
+REDIS_URL=rediss://default:password@cluster.upstash.io:6379
+
+# Kafka (Confluent - free)
+KAFKA_BOOTSTRAP_SERVERS=pkc-xxxxx.region.gcp.confluent.cloud:9092
+KAFKA_API_KEY=your_key
+KAFKA_API_SECRET=your_secret
+
+# OpenSearch (Bonsai - free)
+OPENSEARCH_URL=https://user:pass@cluster.bonsaisearch.net:443
+
+# S3 Storage (Cloudflare R2 - free)
+AWS_ACCESS_KEY_ID=your_r2_access_key
+AWS_SECRET_ACCESS_KEY=your_r2_secret_key
+AWS_ENDPOINT_URL=https://account-id.r2.cloudflarestorage.com
+S3_BUCKET=verisearch-docs
+AWS_DEFAULT_REGION=auto
+
+# App
+APP_ENV=production
+LOG_LEVEL=INFO
+```
+
 ## Testing
 
 ### Test Categories

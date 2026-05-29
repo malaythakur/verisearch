@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "verisearch": {
+      "url": "https://verisearch-production.up.railway.app/mcp/sse",
+      "autoApprove": ["search", "find_similar", "contents", "answer", "research"]
+    }
+  }
+}
