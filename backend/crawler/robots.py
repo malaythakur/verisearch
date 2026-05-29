@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from crawler.models import RobotsResult
+from backend.crawler.models import RobotsResult
 
 
 # Maximum cache TTL in seconds (24 hours)

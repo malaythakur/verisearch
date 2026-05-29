@@ -16,10 +16,10 @@ from urllib.parse import urlparse
 
 import httpx
 
-from crawler.models import FetchResult, RobotsResult, SkipReason, SkipReasonType
-from crawler.opt_out import OptOutRegistry
-from crawler.robots import RobotsCache
-from crawler.throttle import HostThrottle
+from backend.crawler.models import FetchResult, RobotsResult, SkipReason, SkipReasonType
+from backend.crawler.opt_out import OptOutRegistry
+from backend.crawler.robots import RobotsCache
+from backend.crawler.throttle import HostThrottle
 
 
 class AuditEmitter(Protocol):

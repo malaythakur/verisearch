@@ -8,11 +8,11 @@ Provides:
 - FetchResult / SkipReason: Data models for fetch outcomes (R1.7).
 """
 
-from crawler.fetcher import CrawlFetcher
-from crawler.models import FetchResult, RobotsResult, SkipReason, SkipReasonType
-from crawler.opt_out import OptOutRegistry
-from crawler.robots import DEFAULT_USER_AGENT, RobotsCache
-from crawler.throttle import (
+from backend.crawler.fetcher import CrawlFetcher
+from backend.crawler.models import FetchResult, RobotsResult, SkipReason, SkipReasonType
+from backend.crawler.opt_out import OptOutRegistry
+from backend.crawler.robots import DEFAULT_USER_AGENT, RobotsCache
+from backend.crawler.throttle import (
     DEFAULT_CONCURRENCY,
     MAX_CONCURRENCY,
     MIN_CONCURRENCY,
