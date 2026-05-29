@@ -171,8 +171,11 @@ async def mcp_sse(request: Request):
 
     async def event_stream():
         # Send the endpoint event telling the client where to POST messages
-        endpoint_url = f"/mcp/messages?session_id={session_id}"
-        event_data = json.dumps({"endpoint": endpoint_url})
+        # Use full URL for compatibility with all MCP clients
+        host = request.headers.get("host", "verisearch-production.up.railway.app")
+        scheme = "https" if "railway" in host or "https" in str(request.url) else "http"
+        endpoint_url = f"{scheme}://{host}/mcp/messages?session_id={session_id}"
+        event_data = json.dumps(endpoint_url)
         yield f"event: endpoint\ndata: {event_data}\n\n"
 
         # Keep connection alive
