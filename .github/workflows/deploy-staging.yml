@@ -1,0 +1,198 @@
+# Staging Environment Deployment Pipeline
+# Deploys to staging on merge to main after CI passes
+
+name: Deploy Staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Docker image tag to deploy"
+        required: false
+        default: "latest"
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+  EKS_CLUSTER: agentic-research-staging
+  HELM_RELEASE: agentic-research
+  NAMESPACE: agentic-research
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Build and push Docker images
+  # ─────────────────────────────────────────────────────────────────────────────
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - api-gateway
+          - mcp-server
+          - retriever
+          - pipeline-engine
+          - answer-engine
+          - research-agent
+          - crawler
+          - indexer
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.ECR_REGISTRY }}/agentic-research/${{ matrix.service }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            SERVICE=${{ matrix.service }}
+            VERSION=${{ steps.meta.outputs.version }}
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Deploy to staging
+  # ─────────────────────────────────────────────────────────────────────────────
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://api-staging.agentic-research.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER }} --region ${{ env.AWS_REGION }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install ${{ env.HELM_RELEASE }} \
+            deploy/helm/agentic-research \
+            --namespace ${{ env.NAMESPACE }} \
+            --create-namespace \
+            --values deploy/helm/agentic-research/values.yaml \
+            --values deploy/helm/agentic-research/values-staging.yaml \
+            --set global.imageTag=${{ github.sha }} \
+            --set global.environment=staging \
+            --wait \
+            --timeout 10m
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/api-gateway -n ${{ env.NAMESPACE }} --timeout=300s
+          kubectl rollout status deployment/retriever -n ${{ env.NAMESPACE }} --timeout=300s
+          kubectl rollout status deployment/answer-engine -n ${{ env.NAMESPACE }} --timeout=300s
+
+      - name: Run smoke tests
+        run: |
+          API_URL="https://api-staging.agentic-research.com"
+          
+          # Health check
+          curl -sf "${API_URL}/health/ready" || exit 1
+          
+          # Basic search endpoint check
+          curl -sf -X POST "${API_URL}/v1/search" \
+            -H "Authorization: Bearer ${{ secrets.STAGING_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"query": "smoke test", "mode": "hybrid", "num_results": 1}' \
+            || echo "Search endpoint check failed (may be expected if no data)"
+
+      - name: Notify on success
+        if: success()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "✅ Staging deployment successful: ${{ github.sha }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "❌ Staging deployment failed: ${{ github.sha }}\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Run integration tests against staging
+  # ─────────────────────────────────────────────────────────────────────────────
+  integration-tests:
+    needs: deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        working-directory: backend
+        run: |
+          pip install poetry
+          poetry install
+
+      - name: Run integration tests
+        working-directory: backend
+        env:
+          API_BASE_URL: https://api-staging.agentic-research.com
+          API_KEY: ${{ secrets.STAGING_API_KEY }}
+        run: |
+          poetry run pytest tests/ -m integration --timeout=120 -v

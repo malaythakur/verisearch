@@ -1,0 +1,123 @@
+# Continuous Integration pipeline for the Agentic Research Search Engine
+# Runs lint, type-check, test, and build on push to main and pull requests.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Python backend: lint, type-check, and test
+  # ─────────────────────────────────────────────────────────────────────────────
+  python-lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: backend/.venv
+          key: python-${{ matrix.python-version }}-poetry-${{ hashFiles('backend/poetry.lock') }}
+          restore-keys: |
+            python-${{ matrix.python-version }}-poetry-
+
+      - name: Install dependencies
+        working-directory: backend
+        run: poetry install
+
+      # Linting
+      - name: Run ruff lint
+        working-directory: backend
+        run: poetry run ruff check .
+
+      - name: Run ruff format check
+        working-directory: backend
+        run: poetry run ruff format --check .
+
+      - name: Run black format check
+        working-directory: backend
+        run: poetry run black --check .
+
+      # Type checking
+      - name: Run mypy type check
+        working-directory: backend
+        run: poetry run mypy backend/
+
+      # Tests with coverage and thorough Hypothesis profile
+      - name: Run pytest with coverage
+        working-directory: backend
+        env:
+          HYPOTHESIS_PROFILE: ci
+        run: poetry run pytest --cov=backend --cov-report=xml
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # TypeScript SDK: lint, format, type-check (build), and test
+  # ─────────────────────────────────────────────────────────────────────────────
+  typescript-lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ["20.x"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: node-${{ matrix.node-version }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            node-${{ matrix.node-version }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # Linting
+      - name: Run ESLint
+        run: pnpm --filter @agentic-research/sdk lint
+
+      # Format check
+      - name: Run Prettier check
+        run: pnpm --filter @agentic-research/sdk format:check
+
+      # Type-check via TypeScript build
+      - name: Run TypeScript build (type-check)
+        run: pnpm --filter @agentic-research/sdk build
+
+      # Tests
+      - name: Run vitest
+        run: pnpm --filter @agentic-research/sdk test

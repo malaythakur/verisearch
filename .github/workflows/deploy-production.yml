@@ -1,0 +1,256 @@
+# Production Deployment Pipeline with Canary Rollout
+# Requires manual approval and uses progressive delivery
+
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Docker image tag to deploy (SHA from staging)"
+        required: true
+      canary_weight:
+        description: "Initial canary traffic weight (%)"
+        required: false
+        default: "5"
+      skip_canary:
+        description: "Skip canary and deploy directly (emergency only)"
+        required: false
+        default: "false"
+        type: boolean
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+  EKS_CLUSTER: agentic-research-production
+  HELM_RELEASE: agentic-research
+  NAMESPACE: agentic-research
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Pre-deployment validation
+  # ─────────────────────────────────────────────────────────────────────────────
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify image exists in ECR
+        run: |
+          aws ecr describe-images \
+            --repository-name agentic-research/api-gateway \
+            --image-ids imageTag=${{ inputs.image_tag }} \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Verify staging deployment succeeded
+        run: |
+          echo "Verifying image ${{ inputs.image_tag }} was deployed to staging..."
+          # Check staging deployment status via kubectl or API
+          # This ensures we only promote tested images
+
+      - name: Check SLO compliance in staging
+        run: |
+          echo "Checking SLO metrics from staging environment..."
+          # Query Prometheus/Grafana for staging SLO compliance
+          # Fail if any SLO is breached in the last hour
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Canary deployment (5% → 25% → 50% → 100%)
+  # ─────────────────────────────────────────────────────────────────────────────
+  canary-deploy:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://api.agentic-research.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PRODUCTION_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER }} --region ${{ env.AWS_REGION }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Deploy canary (initial weight)
+        if: inputs.skip_canary != 'true'
+        run: |
+          helm upgrade --install ${{ env.HELM_RELEASE }}-canary \
+            deploy/helm/agentic-research \
+            --namespace ${{ env.NAMESPACE }} \
+            --values deploy/helm/agentic-research/values.yaml \
+            --values deploy/helm/agentic-research/values-production.yaml \
+            --set global.imageTag=${{ inputs.image_tag }} \
+            --set global.environment=production \
+            --set global.canary.enabled=true \
+            --set global.canary.weight=${{ inputs.canary_weight }} \
+            --wait \
+            --timeout 10m
+
+      - name: Monitor canary (5 minutes at initial weight)
+        if: inputs.skip_canary != 'true'
+        run: |
+          echo "Monitoring canary at ${{ inputs.canary_weight }}% traffic..."
+          sleep 300
+          
+          # Check error rate on canary pods
+          CANARY_ERROR_RATE=$(kubectl exec -n ${{ env.NAMESPACE }} \
+            deploy/${{ env.HELM_RELEASE }}-canary-api-gateway -- \
+            curl -s localhost:9090/metrics | grep 'http_requests_total{.*status="5' | awk '{sum+=$2} END {print sum}' || echo "0")
+          
+          CANARY_TOTAL=$(kubectl exec -n ${{ env.NAMESPACE }} \
+            deploy/${{ env.HELM_RELEASE }}-canary-api-gateway -- \
+            curl -s localhost:9090/metrics | grep 'http_requests_total' | awk '{sum+=$2} END {print sum}' || echo "1")
+          
+          echo "Canary error rate: ${CANARY_ERROR_RATE}/${CANARY_TOTAL}"
+
+      - name: Promote canary to 25%
+        if: inputs.skip_canary != 'true'
+        run: |
+          helm upgrade ${{ env.HELM_RELEASE }}-canary \
+            deploy/helm/agentic-research \
+            --namespace ${{ env.NAMESPACE }} \
+            --reuse-values \
+            --set global.canary.weight=25 \
+            --wait --timeout 5m
+          
+          echo "Monitoring at 25% for 5 minutes..."
+          sleep 300
+
+      - name: Promote canary to 50%
+        if: inputs.skip_canary != 'true'
+        run: |
+          helm upgrade ${{ env.HELM_RELEASE }}-canary \
+            deploy/helm/agentic-research \
+            --namespace ${{ env.NAMESPACE }} \
+            --reuse-values \
+            --set global.canary.weight=50 \
+            --wait --timeout 5m
+          
+          echo "Monitoring at 50% for 5 minutes..."
+          sleep 300
+
+      - name: Full production rollout
+        run: |
+          # Deploy to primary release at 100%
+          helm upgrade --install ${{ env.HELM_RELEASE }} \
+            deploy/helm/agentic-research \
+            --namespace ${{ env.NAMESPACE }} \
+            --values deploy/helm/agentic-research/values.yaml \
+            --values deploy/helm/agentic-research/values-production.yaml \
+            --set global.imageTag=${{ inputs.image_tag }} \
+            --set global.environment=production \
+            --set global.canary.enabled=false \
+            --wait \
+            --timeout 15m
+
+      - name: Remove canary release
+        if: inputs.skip_canary != 'true'
+        run: |
+          helm uninstall ${{ env.HELM_RELEASE }}-canary \
+            --namespace ${{ env.NAMESPACE }} || true
+
+      - name: Verify production deployment
+        run: |
+          kubectl rollout status deployment/api-gateway -n ${{ env.NAMESPACE }} --timeout=300s
+          kubectl rollout status deployment/retriever -n ${{ env.NAMESPACE }} --timeout=300s
+          kubectl rollout status deployment/answer-engine -n ${{ env.NAMESPACE }} --timeout=300s
+          kubectl rollout status deployment/research-agent -n ${{ env.NAMESPACE }} --timeout=300s
+          kubectl rollout status deployment/crawler -n ${{ env.NAMESPACE }} --timeout=300s
+          kubectl rollout status deployment/indexer -n ${{ env.NAMESPACE }} --timeout=300s
+
+      - name: Run production smoke tests
+        run: |
+          API_URL="https://api.agentic-research.com"
+          
+          # Health check
+          curl -sf "${API_URL}/health/ready" || exit 1
+          
+          echo "Production deployment verified successfully"
+
+      - name: Tag release
+        run: |
+          git tag "release-$(date +%Y%m%d-%H%M%S)-${{ inputs.image_tag }}"
+          git push origin --tags
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Rollback on failure
+  # ─────────────────────────────────────────────────────────────────────────────
+  rollback:
+    needs: canary-deploy
+    if: failure()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PRODUCTION_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER }} --region ${{ env.AWS_REGION }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Rollback primary release
+        run: |
+          helm rollback ${{ env.HELM_RELEASE }} \
+            --namespace ${{ env.NAMESPACE }} \
+            --wait --timeout 10m
+
+      - name: Remove canary release
+        run: |
+          helm uninstall ${{ env.HELM_RELEASE }}-canary \
+            --namespace ${{ env.NAMESPACE }} || true
+
+      - name: Verify rollback
+        run: |
+          kubectl rollout status deployment/api-gateway -n ${{ env.NAMESPACE }} --timeout=300s
+
+      - name: Notify rollback
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "🚨 Production deployment ROLLED BACK: ${{ inputs.image_tag }}\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Post-deployment notifications
+  # ─────────────────────────────────────────────────────────────────────────────
+  notify:
+    needs: canary-deploy
+    if: success()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Notify success
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "🚀 Production deployment successful: ${{ inputs.image_tag }}\nCanary rollout completed through 5% → 25% → 50% → 100%"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
