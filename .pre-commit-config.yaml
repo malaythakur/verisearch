@@ -1,0 +1,48 @@
+repos:
+  # General file hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+
+  # Python linting with ruff
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.2
+    hooks:
+      - id: ruff
+        args: [--fix]
+        types_or: [python]
+      - id: ruff-format
+        args: [--check]
+        types_or: [python]
+
+  # Python formatting with black
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        args: [--check]
+        types_or: [python]
+
+  # TypeScript/JavaScript linting with eslint
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint
+        entry: pnpm --filter @agentic-research/sdk exec eslint
+        language: system
+        files: '^sdks/typescript/.*\.(ts|tsx|js|mjs)$'
+        types: [file]
+
+  # TypeScript/JSON/YAML formatting with prettier
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: pnpm --filter @agentic-research/sdk exec prettier --check
+        language: system
+        files: '^sdks/typescript/.*\.(ts|tsx|js|mjs|json|yaml|yml)$'
+        types: [file]
