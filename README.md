@@ -1,6 +1,16 @@
-# Agentic Research Search Engine
+# Verisearch
 
-A multi-tenant SaaS platform that combines neural search, streaming answers with citations, programmable retrieval pipelines, and agentic deep research — all accessible via REST, SSE, WebSocket, and MCP interfaces.
+**AI Search Engine with Verifiable Citations**
+
+[![CI](https://github.com/malaythakur/verisearch/actions/workflows/ci.yml/badge.svg)](https://github.com/malaythakur/verisearch/actions/workflows/ci.yml)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Railway-blueviolet)](https://verisearch-production.up.railway.app/docs)
+[![MCP](https://img.shields.io/badge/MCP-Compatible-green)](https://verisearch-production.up.railway.app/mcp/sse)
+
+> A multi-tenant SaaS platform that combines neural search, streaming answers with citations, programmable retrieval pipelines, and agentic deep research — all accessible via REST, SSE, and MCP interfaces.
+
+**Live API:** https://verisearch-production.up.railway.app/docs
+**MCP Endpoint:** https://verisearch-production.up.railway.app/mcp/sse
+**GitHub:** https://github.com/malaythakur/verisearch
 
 ## Key Features
 
@@ -10,6 +20,7 @@ A multi-tenant SaaS platform that combines neural search, streaming answers with
 - **Provenance & Credibility Scoring** — AI-generated content detection and credibility signals on every result
 - **Persistent Research Sessions** — Context carried across queries within a tenant
 - **Query Filter DSL** — Textual filter language with provable parse/print round-trip guarantees
+- **MCP Integration** — 5 tools (search, find_similar, contents, answer, research) for AI agents
 
 ## Architecture
 
@@ -34,6 +45,24 @@ A multi-tenant SaaS platform that combines neural search, streaming answers with
 │  Crawler  │  Indexer  │  Provenance Scorer  │  Embedding Gen     │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+## Try It Now (Live API)
+
+```bash
+# Index a document
+curl -X POST https://verisearch-production.up.railway.app/v1/index \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/doc", "content": "Python was created by Guido van Rossum in 1991."}'
+
+# Ask a question (real AI answer from Llama 3.3 70B)
+curl -X POST https://verisearch-production.up.railway.app/v1/answer \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Who created Python?", "stream": false}'
+
+# Response: {"answer": "Python was created by Guido van Rossum in 1991...", "citations": [...]}
+```
+
+Or open the interactive docs: https://verisearch-production.up.railway.app/docs
 
 ## Quick Start
 
