@@ -34,7 +34,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 
 EXPOSE 8000
 
-# Use shell form so $PORT is expanded at runtime
+# Start the app
 COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
-CMD ["/app/start.sh"]
+RUN chmod +x /app/start.sh && sed -i 's/\r$//' /app/start.sh
+ENTRYPOINT ["/bin/sh", "/app/start.sh"]
