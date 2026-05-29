@@ -1,0 +1,230 @@
+# Prometheus alerting rules for SLO monitoring
+# Agentic Research Search Engine
+
+groups:
+  - name: slo_latency_alerts
+    interval: 30s
+    rules:
+      # R3.2: Search warm-cache p95 ≤ 800ms
+      - alert: SearchWarmCacheLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(search_request_duration_seconds_bucket{cache="warm"}[5m])) by (le)
+          ) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          slo: search_warm_cache
+          requirement: R3.2
+        annotations:
+          summary: "Search warm-cache p95 latency exceeds 800ms SLO"
+          description: "Current p95: {{ $value | humanizeDuration }}. SLO target: 800ms."
+          runbook_url: "https://docs.internal/runbooks/search-latency"
+
+      - alert: SearchWarmCacheLatencyCritical
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(search_request_duration_seconds_bucket{cache="warm"}[5m])) by (le)
+          ) > 1.2
+        for: 2m
+        labels:
+          severity: critical
+          slo: search_warm_cache
+          requirement: R3.2
+        annotations:
+          summary: "Search warm-cache p95 latency critically high (>1.2s)"
+          description: "Current p95: {{ $value | humanizeDuration }}. Exceeds 150% of SLO."
+
+      # R13.1: Auth resolution p95 ≤ 50ms
+      - alert: AuthResolutionLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(auth_resolution_duration_seconds_bucket[5m])) by (le)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          slo: auth_resolution
+          requirement: R13.1
+        annotations:
+          summary: "Auth resolution p95 latency exceeds 50ms SLO"
+          description: "Current p95: {{ $value | humanizeDuration }}. SLO target: 50ms."
+          runbook_url: "https://docs.internal/runbooks/auth-latency"
+
+      - alert: AuthResolutionLatencyCritical
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(auth_resolution_duration_seconds_bucket[5m])) by (le)
+          ) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          slo: auth_resolution
+          requirement: R13.1
+        annotations:
+          summary: "Auth resolution p95 critically high (>100ms)"
+          description: "Current p95: {{ $value | humanizeDuration }}. Check LRU cache health."
+
+      # R6.1: First answer token p95 ≤ 3s
+      - alert: FirstAnswerTokenLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(answer_first_token_duration_seconds_bucket[5m])) by (le)
+          ) > 3.0
+        for: 5m
+        labels:
+          severity: warning
+          slo: first_answer_token
+          requirement: R6.1
+        annotations:
+          summary: "First answer token p95 latency exceeds 3s SLO"
+          description: "Current p95: {{ $value | humanizeDuration }}. SLO target: 3s."
+          runbook_url: "https://docs.internal/runbooks/answer-latency"
+
+      - alert: FirstAnswerTokenLatencyCritical
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(answer_first_token_duration_seconds_bucket[5m])) by (le)
+          ) > 5.0
+        for: 2m
+        labels:
+          severity: critical
+          slo: first_answer_token
+          requirement: R6.1
+        annotations:
+          summary: "First answer token p95 critically high (>5s)"
+          description: "Current p95: {{ $value | humanizeDuration }}. Check LLM provider health."
+
+      # R7.1: Research job_id return p95 ≤ 1s
+      - alert: ResearchJobReturnLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(research_job_creation_duration_seconds_bucket[5m])) by (le)
+          ) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          slo: research_job_return
+          requirement: R7.1
+        annotations:
+          summary: "Research job_id return p95 latency exceeds 1s SLO"
+          description: "Current p95: {{ $value | humanizeDuration }}. SLO target: 1s."
+          runbook_url: "https://docs.internal/runbooks/research-latency"
+
+      # R11.1: Parser p95 ≤ 100ms
+      - alert: ParserLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(parser_duration_seconds_bucket[5m])) by (le)
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          slo: parser_latency
+          requirement: R11.1
+        annotations:
+          summary: "Parser p95 latency exceeds 100ms SLO"
+          description: "Current p95: {{ $value | humanizeDuration }}. SLO target: 100ms."
+
+      # R2.1: Fetch-to-searchable p95 ≤ 60min
+      - alert: IngestPipelineLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(ingest_pipeline_duration_seconds_bucket[1h])) by (le)
+          ) > 3600
+        for: 15m
+        labels:
+          severity: warning
+          slo: fetch_to_searchable
+          requirement: R2.1
+        annotations:
+          summary: "Fetch-to-searchable p95 exceeds 60min SLO"
+          description: "Current p95: {{ $value | humanizeDuration }}. SLO target: 60 minutes."
+          runbook_url: "https://docs.internal/runbooks/ingest-latency"
+
+      - alert: IngestPipelineLatencyCritical
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(ingest_pipeline_duration_seconds_bucket[1h])) by (le)
+          ) > 14400
+        for: 15m
+        labels:
+          severity: critical
+          slo: fetch_to_searchable
+          requirement: R2.1
+        annotations:
+          summary: "Fetch-to-searchable p99 exceeds 4h SLO"
+          description: "Current p99: {{ $value | humanizeDuration }}. SLO target: 4 hours."
+
+  - name: slo_availability_alerts
+    interval: 30s
+    rules:
+      # Overall API availability
+      - alert: APIAvailabilityLow
+        expr: |
+          1 - (
+            sum(rate(http_requests_total{status=~"5.."}[1h]))
+            / sum(rate(http_requests_total[1h]))
+          ) < 0.999
+        for: 5m
+        labels:
+          severity: critical
+          slo: availability
+        annotations:
+          summary: "API availability below 99.9% SLO"
+          description: "Current availability: {{ $value | humanizePercentage }}."
+
+      # Error budget burn rate (multi-window)
+      - alert: ErrorBudgetBurnRateHigh
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[1h]))
+            / sum(rate(http_requests_total[1h]))
+          ) > (1 - 0.999) * 14.4
+        for: 5m
+        labels:
+          severity: critical
+          slo: error_budget
+        annotations:
+          summary: "Error budget burn rate is 14.4x (will exhaust in 5 days)"
+          description: "Fast burn detected. Immediate investigation required."
+
+      - alert: ErrorBudgetBurnRateElevated
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[6h]))
+            / sum(rate(http_requests_total[6h]))
+          ) > (1 - 0.999) * 6
+        for: 30m
+        labels:
+          severity: warning
+          slo: error_budget
+        annotations:
+          summary: "Error budget burn rate is 6x (will exhaust in 10 days)"
+          description: "Elevated burn rate. Monitor closely."
+
+  - name: slo_saturation_alerts
+    interval: 30s
+    rules:
+      # Rate limiter saturation
+      - alert: RateLimiterSaturationHigh
+        expr: |
+          sum(rate(rate_limit_rejections_total[5m])) by (tenant_id)
+          / sum(rate(http_requests_total[5m])) by (tenant_id) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tenant {{ $labels.tenant_id }} hitting rate limits on >10% of requests"
+
+      # Dead letter queue growth
+      - alert: DLQGrowthHigh
+        expr: |
+          rate(dlq_messages_total[15m]) > 1
+        for: 15m
+        labels:
+          severity: warning
+          requirement: R2.5
+        annotations:
+          summary: "Dead letter queue growing (>1 msg/min)"
+          description: "Check indexer health and retry pipeline."

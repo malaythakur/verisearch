@@ -1,0 +1,72 @@
+[tool.poetry]
+name = "agentic-research-backend"
+version = "0.1.0"
+description = "Agentic Research Search Engine - Backend Services"
+authors = ["Agentic Research Team"]
+readme = "README.md"
+packages = [{include = "backend", from = ".."}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "0.115.6"
+uvicorn = "0.34.0"
+pydantic = "2.10.4"
+pydantic-settings = "2.7.1"
+httpx = "0.28.1"
+asyncpg = "0.30.0"
+redis = "5.2.1"
+aiokafka = "0.12.0"
+boto3 = "1.35.86"
+argon2-cffi = "23.1.0"
+opentelemetry-api = "1.29.0"
+opentelemetry-sdk = "1.29.0"
+structlog = "24.4.0"
+openai = "^2.38.0"
+
+[tool.poetry.group.ai]
+optional = true
+
+[tool.poetry.group.ai.dependencies]
+openai = ">=1.0.0"
+anthropic = ">=0.30.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "8.3.4"
+pytest-asyncio = "0.25.0"
+pytest-cov = "6.0.0"
+hypothesis = "6.119.3"
+coverage = "7.6.9"
+mypy = "1.13.0"
+fakeredis = {version = "2.26.2", extras = ["lua"]}
+httpx = "0.28.1"
+opensearch-py = "2.7.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: marks tests as integration tests requiring external services (deselect with '-m \"not integration\"')",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["backend"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.black]
+target-version = ["py311"]
+line-length = 120
