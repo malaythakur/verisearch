@@ -56,12 +56,26 @@ class KafkaIngestProducer:
         try:
             from aiokafka import AIOKafkaProducer
 
-            self._producer = AIOKafkaProducer(
-                bootstrap_servers=bootstrap_servers,
-                value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-                acks="all",
-                retries=3,
-            )
+            # Support SASL auth for Confluent Cloud
+            kafka_api_key = os.environ.get("KAFKA_API_KEY", "")
+            kafka_api_secret = os.environ.get("KAFKA_API_SECRET", "")
+
+            kwargs = {
+                "bootstrap_servers": bootstrap_servers,
+                "value_serializer": lambda v: json.dumps(v).encode("utf-8"),
+                "acks": "all",
+                "retries": 3,
+            }
+
+            if kafka_api_key and kafka_api_secret:
+                kwargs.update({
+                    "security_protocol": "SASL_SSL",
+                    "sasl_mechanism": "PLAIN",
+                    "sasl_plain_username": kafka_api_key,
+                    "sasl_plain_password": kafka_api_secret,
+                })
+
+            self._producer = AIOKafkaProducer(**kwargs)
             await self._producer.start()
             self._available = True
             return self._producer
